@@ -93,7 +93,8 @@ spec:
   serviceAccountName: jenkins-admin
   containers:
   - name: helm
-    image: alpine/helm:3.14.0
+    #image: alpine/helm:3.14.0
+    image: dtzar/helm-kubectl:3.14.0
     command:
     - cat
     tty: true
