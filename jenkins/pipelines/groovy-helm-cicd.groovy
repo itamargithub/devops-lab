@@ -89,7 +89,8 @@ spec:
 apiVersion: v1
 kind: Pod
 spec:
-  serviceAccountName: default
+  #serviceAccountName: default
+  serviceAccountName: jenkins-admin
   containers:
   - name: helm
     image: alpine/helm:3.14.0
