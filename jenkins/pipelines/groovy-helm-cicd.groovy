@@ -1,6 +1,6 @@
 /*
  * groovy-helm-cicd.groovy
- * CI/CD pipeline using dynamic Kubernetes agents and Helm deployment.
+ * Full CI/CD pipeline: dynamic K8s agents, Helm deployment, rollback & cleanup
  * Author: Itamar Galili
  */
 
@@ -9,7 +9,7 @@ pipeline {
 
   stages {
 
-    // ------------------- STAGE 1 -------------------
+    // ---------- Stage 1: Build & Stash ----------
     stage('Build & Stash System Info') {
       agent {
         kubernetes {
@@ -21,8 +21,7 @@ spec:
   containers:
   - name: alpine
     image: alpine
-    command:
-    - cat
+    command: [ "cat" ]
     tty: true
 """
         }
@@ -39,7 +38,7 @@ spec:
       }
     }
 
-    // ------------------- STAGE 2 -------------------
+    // ---------- Stage 2: Parallel Analysis ----------
     stage('Parallel Analysis') {
       parallel {
 
@@ -54,8 +53,7 @@ spec:
   containers:
   - name: python
     image: python:3.10-slim
-    command:
-    - cat
+    command: [ "cat" ]
     tty: true
 """
             }
@@ -80,7 +78,7 @@ spec:
       }
     }
 
-    // ------------------- STAGE 3 -------------------
+    // ---------- Stage 3: Deploy with Helm ----------
     stage('Deploy with Helm') {
       agent {
         kubernetes {
@@ -89,14 +87,11 @@ spec:
 apiVersion: v1
 kind: Pod
 spec:
-  #serviceAccountName: default
   serviceAccountName: jenkins-admin
   containers:
   - name: helm
-    #image: alpine/helm:3.14.0
     image: dtzar/helm-kubectl:3.14.0
-    command:
-    - cat
+    command: [ "cat" ]
     tty: true
 """
         }
@@ -104,7 +99,8 @@ spec:
       steps {
         container('helm') {
           sh '''
-            echo "🚀 Deploying hello-app using Helm"
+            echo "🚀 Deploying hello-app using Helm..."
+            set -e
             helm upgrade --install hello-app ./helm/hello-app --namespace default --wait
             echo "✅ Deployment complete — current pods:"
             kubectl get pods -n default
@@ -112,11 +108,50 @@ spec:
         }
       }
     }
+
+    // ---------- Stage 4: Rollback & Cleanup ----------
+    stage('Rollback & Cleanup') {
+      agent {
+        kubernetes {
+          label 'helm-agent'
+          yaml """
+apiVersion: v1
+kind: Pod
+spec:
+  serviceAccountName: jenkins-admin
+  containers:
+  - name: helm
+    image: dtzar/helm-kubectl:3.14.0
+    command: [ "cat" ]
+    tty: true
+"""
+        }
+      }
+      steps {
+        container('helm') {
+          script {
+            echo "🧹 Validating release status before cleanup..."
+            def status = sh(script: "helm status hello-app -n default || echo 'notfound'", returnStdout: true).trim()
+
+            if (status.contains("failed")) {
+              echo "⚠️ Detected failed deployment, rolling back..."
+              sh "helm rollback hello-app 1 -n default"
+            } else {
+              echo "🧼 Cleaning up demo environment..."
+              sh "helm uninstall hello-app -n default"
+            }
+          }
+        }
+      }
+    }
   }
 
   post {
-    always {
-      echo "✅ CI/CD pipeline completed successfully."
+    success {
+      echo "✅ Full CI/CD pipeline (build, test, deploy, cleanup) completed successfully."
+    }
+    failure {
+      echo "❌ Pipeline failed — check logs for rollback execution."
     }
   }
 }
