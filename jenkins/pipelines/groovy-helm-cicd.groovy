@@ -9,14 +9,12 @@ pipeline {
 
   stages {
 
-    stage('Build & Test') {
-      parallel {
-
-        stage('Alpine - System Info') {
-          agent {
-            kubernetes {
-              label 'alpine-agent'
-              yaml """
+    // ------------------- STAGE 1 -------------------
+    stage('Build & Stash System Info') {
+      agent {
+        kubernetes {
+          label 'alpine-agent'
+          yaml """
 apiVersion: v1
 kind: Pod
 spec:
@@ -27,19 +25,23 @@ spec:
     - cat
     tty: true
 """
-            }
-          }
-          steps {
-            container('alpine') {
-              sh '''
-                echo "Collecting system info from Alpine agent"
-                echo "Host: $(hostname)" > sysinfo.txt
-                date >> sysinfo.txt
-              '''
-            }
-            stash includes: 'sysinfo.txt', name: 'sysinfo'
-          }
         }
+      }
+      steps {
+        container('alpine') {
+          sh '''
+            echo "Collecting system info from Alpine agent..."
+            echo "Host: $(hostname)" > sysinfo.txt
+            date >> sysinfo.txt
+          '''
+        }
+        stash includes: 'sysinfo.txt', name: 'sysinfo'
+      }
+    }
+
+    // ------------------- STAGE 2 -------------------
+    stage('Parallel Analysis') {
+      parallel {
 
         stage('Python - Analyze Info') {
           agent {
@@ -62,16 +64,23 @@ spec:
             container('python') {
               unstash 'sysinfo'
               sh '''
-                echo "Python container analyzing info..."
+                echo "🐍 Python container analyzing sysinfo..."
                 cat sysinfo.txt
               '''
             }
           }
         }
 
-      } // parallel
-    } // stage
+        stage('Validation') {
+          agent any
+          steps {
+            echo "🧩 Validation or parallel check running..."
+          }
+        }
+      }
+    }
 
+    // ------------------- STAGE 3 -------------------
     stage('Deploy with Helm') {
       agent {
         kubernetes {
@@ -80,6 +89,7 @@ spec:
 apiVersion: v1
 kind: Pod
 spec:
+  serviceAccountName: default
   containers:
   - name: helm
     image: alpine/helm:3.14.0
@@ -94,13 +104,13 @@ spec:
           sh '''
             echo "🚀 Deploying hello-app using Helm"
             helm upgrade --install hello-app ./helm/hello-app --namespace default --wait
+            echo "✅ Deployment complete — current pods:"
             kubectl get pods -n default
           '''
         }
       }
     }
-
-  } // stages
+  }
 
   post {
     always {
