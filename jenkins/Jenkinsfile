@@ -1,0 +1,25 @@
+pipeline {
+  agent {
+    kubernetes {
+      label 'alpine'
+    }
+  }
+  stages {
+    stage('Test') {
+      steps {
+        container('alpine') {
+          sh '''
+            echo "✅ Running on Kubernetes inside Minikube!"
+            echo "Node: $(hostname)"
+            echo "Date: $(date)"
+          '''
+        }
+      }
+    }
+  }
+  post {
+    always {
+      echo "Pipeline completed."
+    }
+  }
+}
